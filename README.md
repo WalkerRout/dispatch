@@ -29,5 +29,4 @@ Binary expects that file `dispatch.json` exists in the same directory as the exe
     }
   ]
 }
-
 ```
