@@ -9,6 +9,7 @@ Define global keyboard shortcuts to execute shell commands
 Binary expects that file `dispatch.json` exists in the same directory as the executable, `dispatch.log` will be automatically generated on each run.
 
 ## Example `dispatch.json`
+> Modifier keys are: 'Ctrl', 'Shift', 'Alt', and 'Super'
 ```
 {
   "keybinds": [
