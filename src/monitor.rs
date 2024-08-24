@@ -67,7 +67,7 @@ impl Service for ConfigMonitor {
   #[instrument(name = "CONFIG", skip(self, ctx))]
   async fn invoke(&mut self, ctx: Self::Context) {
     tokio::select! {
-      () = self.monitor_files(ctx.token.clone(), Arc::clone(&ctx.table)) => {},
+      () = self.monitor_files(ctx.token.clone(), Arc::clone(&ctx.table)) => (),
       () = ctx.token.cancelled() => (),
     }
     warn!("stopping gracefully");

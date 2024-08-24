@@ -70,25 +70,29 @@ async fn main() {
   let listener = TcpListener::bind("127.0.0.1:3599")
     .await
     .expect("open port 3599");
-  tokio::spawn(
+
+  let tcp_server = tokio::spawn(
     async move {
       use tokio::io::AsyncReadExt;
-      // refactor to use tokio::select on token cancelled instead of dropping handle..
-      while let Ok((mut stream, _)) = listener.accept().await {
-        let mut buf = [0; 1024];
-        let n = stream
-          .read(&mut buf)
-          .await
-          .expect("read from stream into buffer");
-        if let Ok(s) = str::from_utf8(&buf[0..n]) {
-          let trimmed = s.trim();
-          warn!("received data from TCP port: {trimmed}");
-          if trimmed == "shutdown" {
-            warn!("shutdown received");
-            warn!("STOPPING");
-            token.cancel();
-            return;
-          }
+      loop {
+        tokio::select! {
+          Ok((mut stream, _)) = listener.accept() => {
+            let mut buf = [0; 1024];
+            let n = stream
+              .read(&mut buf)
+              .await
+              .expect("read from stream into buffer");
+            if let Ok(s) = str::from_utf8(&buf[0..n]) {
+              let trimmed = s.trim();
+              info!("received data from TCP port: {trimmed}");
+              if trimmed == "shutdown" {
+                warn!("shutdown received");
+                warn!("STOPPING");
+                token.cancel();
+              }
+            }
+          },
+          _ = token.cancelled() => break,
         }
       }
     }
@@ -101,4 +105,6 @@ async fn main() {
   info!("dispatcher initialized...");
   dispatcher.invoke_all(context, services).await;
   info!("dispatcher terminated...\n\n");
+
+  tcp_server.await.expect("listener task failed");
 }

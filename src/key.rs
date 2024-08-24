@@ -73,7 +73,7 @@ impl Key {
     key
   }
 
-  pub fn from_names(key_names: impl IntoIterator<Item=String>) -> Self {
+  pub fn from_names(key_names: impl IntoIterator<Item = String>) -> Self {
     let mut repr: u64 = 0;
     for mut key_name in key_names {
       key_name.make_ascii_lowercase();

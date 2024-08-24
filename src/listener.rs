@@ -42,7 +42,7 @@ impl Service for KeybindListener {
   #[instrument(name = "LISTENER", skip(self, ctx))]
   async fn invoke(&mut self, ctx: Self::Context) {
     tokio::select! {
-      () = self.listen_for_keypresses(ctx.token.clone()) => {},
+      () = self.listen_for_keypresses(ctx.token.clone()) => (),
       () = ctx.token.cancelled() => (),
     }
     warn!("stopping gracefully");

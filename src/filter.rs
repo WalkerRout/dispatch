@@ -54,7 +54,7 @@ impl Service for HotkeyFilter {
   #[instrument(name = "FILTER", skip(self, ctx))]
   async fn invoke(&mut self, ctx: Self::Context) {
     tokio::select! {
-      () = self.filter_hotkeys(ctx.token.clone(), Arc::clone(&ctx.table)) => {},
+      () = self.filter_hotkeys(ctx.token.clone(), Arc::clone(&ctx.table)) => (),
       () = ctx.token.cancelled() => (),
     }
     warn!("stopping gracefully");
