@@ -4,6 +4,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 
 use tokio::task;
 
+use tracing::warn;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -75,20 +77,20 @@ impl Key {
     let mut repr: u64 = 0;
     for mut key_name in key_names {
       key_name.make_ascii_lowercase();
-      match &key_name[..] {
-        "ctrl" => repr |= 1 << 0,
+      match key_name.trim() {
+        "ctrl" | "control" => repr |= 1 << 0,
         "shift" => repr |= 1 << 1,
-        "alt" => repr |= 1 << 2,
-        "super" => repr |= 1 << 3,
+        "alt" | "alternate" | "option" => repr |= 1 << 2,
+        "super" | "win" | "windows" | "cmd" | "command" => repr |= 1 << 3,
         key if key.len() == 1 => {
           let char_code = key.chars().next().unwrap() as u64;
           match char_code as u8 {
-            b'A'..=b'Z' => repr |= 1 << (4 + (char_code - b'A' as u64)),
+            b'a'..=b'z' => repr |= 1 << (4 + (char_code - b'a' as u64)),
             b'0'..=b'9' => repr |= 1 << (4 + 26 + (char_code - b'0' as u64)),
             _ => {}
           }
         }
-        _ => {}
+        key => warn!("did not recognize key: {key}"),
       }
     }
     Key { repr }
