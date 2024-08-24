@@ -2,15 +2,16 @@
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::str;
 use std::sync::Arc;
 
-use tokio::signal;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
 use tokio_util::sync::CancellationToken;
 
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::filter::LevelFilter;
 
 use dispatcher::filter::HotkeyFilter;
@@ -61,17 +62,34 @@ async fn main() {
     table: Arc::new(RwLock::new(Keymap(HashMap::new()))),
   };
 
+  // socket to halt the application on receive of b"shutdown" bytes
+  let stop = context.token.clone();
+  let listener = TcpListener::bind("127.0.0.1:33599")
+    .await
+    .expect("open port 33599");
+  tokio::spawn(async move {
+    use tokio::io::AsyncReadExt;
+    while let Ok((mut stream, _)) = listener.accept().await {
+      let mut buf = [0; 1024];
+      let n = stream
+        .read(&mut buf)
+        .await
+        .expect("read from stream into buffer");
+      if let Ok(s) = str::from_utf8(&buf[0..n]) {
+        let trimmed = s.trim();
+        warn!("received data from TCP port: {trimmed}");
+        if trimmed == "shutdown" {
+          warn!("shutdown received");
+          warn!("STOPPING");
+          stop.cancel();
+          return;
+        }
+      }
+    }
+  });
+
   let dispatcher = Dispatcher {};
   info!("dispatcher initialized...");
-  #[rustfmt::skip]
-  tokio::join!(
-    dispatcher.invoke_all(context.clone(), services), 
-    async {
-      signal::ctrl_c().await.expect("listen to ctrl_c");
-      info!("ctrl_c signal received");
-      info!("dispatcher stopping...");
-      context.token.cancel();
-    }
-  );
+  dispatcher.invoke_all(context, services).await;
   info!("dispatcher terminated...\n\n");
 }

@@ -33,7 +33,7 @@ impl ConfigMonitor {
 
     loop {
       match file_events.recv().await {
-        Some(bytes) => {
+        Some(WatcherPayload::Bytes(bytes)) => {
           // sent nothing, try again
           if bytes.is_empty() {
             continue;
@@ -44,6 +44,11 @@ impl ConfigMonitor {
           } else {
             warn!("saved dispatch config in invalid state");
           }
+        }
+        Some(WatcherPayload::Error(e)) => {
+          error!("monitor failed to track changes - {e}");
+          warn!("STOPPING");
+          token.cancel();
         }
         None => {
           error!("failed to receive from monitor tx");
@@ -68,9 +73,17 @@ impl Service for ConfigMonitor {
   }
 }
 
+enum WatcherPayload {
+  Bytes(Vec<u8>),
+  Error(anyhow::Error),
+}
+
 fn async_watcher<P: AsRef<Path>>(
   paths: Vec<P>,
-) -> Result<(Receiver<Vec<u8>>, RecommendedWatcher), anyhow::Error> {
+) -> Result<(Receiver<WatcherPayload>, RecommendedWatcher), anyhow::Error> {
+  // can only handle single file as of now
+  assert_eq!(paths.len(), 1);
+
   let (tx, rx) = mpsc::channel(1);
 
   let mut watcher = {
@@ -81,27 +94,26 @@ fn async_watcher<P: AsRef<Path>>(
         paths,
         ..
       }) => {
-        let bytes = paths.iter().fold(Vec::new(), |mut acc, path| {
-          let data = match fs::read(path) {
-            Ok(bytes) => bytes,
+        // build up payload from sources
+        let mut bytes = Vec::new();
+        for path in paths {
+          match fs::read(path) {
+            Ok(extra) => bytes.extend(extra),
             Err(e) => {
-              error!(
-                "path to modified file should exist - {} - {e}",
-                path.display()
-              );
-              panic!();
+              if let Err(e) = tx.try_send(WatcherPayload::Error(anyhow::Error::from(e))) {
+                error!("failed to send payload from watcher - {e}");
+              }
             }
-          };
-          acc.extend(data);
-          acc
-        });
-        if let Err(e) = tx.try_send(bytes) {
-          error!("failed to send event from watcher - {e}");
+          }
+        }
+
+        if let Err(e) = tx.try_send(WatcherPayload::Bytes(bytes)) {
+          error!("failed to send payload from watcher - {e}");
         }
       }
       // ignore non-modify events
       Ok(_) => (),
-      Err(e) => error!("failed to determine watcher event - {e}"),
+      Err(e) => error!("failed to determine watcher payload - {e}"),
     })?
   };
 
@@ -113,13 +125,15 @@ fn async_watcher<P: AsRef<Path>>(
       initial_config.extend(bytes);
     }
 
-    watcher.watch(path, RecursiveMode::Recursive).inspect_err(|_| {
-      warn!("{} not found", path.display());
-    })?;
+    watcher
+      .watch(path, RecursiveMode::Recursive)
+      .inspect_err(|_| {
+        warn!("{} not found", path.display());
+      })?;
   }
 
   // send initial config from first read
-  if let Err(e) = tx.try_send(initial_config) {
+  if let Err(e) = tx.try_send(WatcherPayload::Bytes(initial_config)) {
     error!("failed to send event from watcher - {e}");
   }
 

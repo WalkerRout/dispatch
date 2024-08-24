@@ -29,7 +29,7 @@ impl KeybindListener {
         }
       }
 
-      sleep(Duration::from_millis(100)).await;
+      sleep(Duration::from_millis(85)).await;
     }
   }
 }
