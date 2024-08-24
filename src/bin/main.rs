@@ -66,13 +66,14 @@ async fn main() {
   };
 
   // socket to halt the application on receive of b"shutdown" bytes
-  let stop = context.token.clone();
+  let token = context.token.clone();
   let listener = TcpListener::bind("127.0.0.1:3599")
     .await
     .expect("open port 3599");
   tokio::spawn(
     async move {
       use tokio::io::AsyncReadExt;
+      // refactor to use tokio::select on token cancelled instead of dropping handle..
       while let Ok((mut stream, _)) = listener.accept().await {
         let mut buf = [0; 1024];
         let n = stream
@@ -85,7 +86,7 @@ async fn main() {
           if trimmed == "shutdown" {
             warn!("shutdown received");
             warn!("STOPPING");
-            stop.cancel();
+            token.cancel();
             return;
           }
         }

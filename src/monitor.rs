@@ -12,16 +12,16 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, warn};
 
-use crate::keymap::Keymap;
+use crate::keymap::{self, Keymap};
 use crate::{Context, Service};
 
 pub struct ConfigMonitor {}
 
 impl ConfigMonitor {
   async fn monitor_files(&mut self, token: CancellationToken, table: Arc<RwLock<Keymap>>) {
-    let paths = vec!["dispatch.json"];
-
-    let (mut file_events, _watcher) = match async_watcher(paths) {
+    // can only handle single file as of now
+    let path = "dispatch.json";
+    let (mut file_events, _watcher) = match async_watcher(path) {
       Ok(obs) => obs,
       Err(e) => {
         error!("unable to debounce watch - {e}");
@@ -38,7 +38,7 @@ impl ConfigMonitor {
           if bytes.is_empty() {
             continue;
           }
-          match Keymap::try_from(&bytes[..]) {
+          match keymap::parse_json(&bytes[..]) {
             Ok(new_map) => {
               *table.write().await = new_map;
               info!("dispatch config successfully updated");
@@ -80,11 +80,8 @@ enum WatcherPayload {
 }
 
 fn async_watcher<P: AsRef<Path>>(
-  paths: Vec<P>,
+  path: P,
 ) -> Result<(Receiver<WatcherPayload>, RecommendedWatcher), anyhow::Error> {
-  // can only handle single file as of now
-  assert_eq!(paths.len(), 1);
-
   let (tx, rx) = mpsc::channel(1);
 
   let mut watcher = {
@@ -95,19 +92,17 @@ fn async_watcher<P: AsRef<Path>>(
         paths,
         ..
       }) => {
-        // build up payload from sources
+        assert_eq!(paths.len(), 1);
+        // build up payload from source
         let mut bytes = Vec::new();
-        for path in paths {
-          match fs::read(path) {
-            Ok(extra) => bytes.extend(extra),
-            Err(e) => {
-              if let Err(e) = tx.try_send(WatcherPayload::Error(anyhow::Error::from(e))) {
-                error!("failed to send payload from watcher - {e}");
-              }
+        match fs::read(&paths[0]) {
+          Ok(extra) => bytes.extend(extra),
+          Err(e) => {
+            if let Err(e) = tx.try_send(WatcherPayload::Error(anyhow::Error::from(e))) {
+              error!("failed to send payload from watcher - {e}");
             }
           }
         }
-
         if let Err(e) = tx.try_send(WatcherPayload::Bytes(bytes)) {
           error!("failed to send payload from watcher - {e}");
         }
@@ -118,20 +113,18 @@ fn async_watcher<P: AsRef<Path>>(
     })?
   };
 
+  let path = path.as_ref();
+
   let mut initial_config = Vec::new();
-  for path in paths {
-    let path = path.as_ref();
-
-    if let Ok(bytes) = fs::read(path) {
-      initial_config.extend(bytes);
-    }
-
-    watcher
-      .watch(path, RecursiveMode::Recursive)
-      .inspect_err(|_| {
-        warn!("{} not found", path.display());
-      })?;
+  if let Ok(bytes) = fs::read(path) {
+    initial_config.extend(bytes);
   }
+
+  watcher
+    .watch(path, RecursiveMode::Recursive)
+    .inspect_err(|_| {
+      warn!("{} not found", path.display());
+    })?;
 
   // send initial config from first read
   if let Err(e) = tx.try_send(WatcherPayload::Bytes(initial_config)) {

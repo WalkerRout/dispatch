@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Key {
   /// Keys can modify each other; need to store a bitfield of possible selected values
-  /// - 4 bits modifiers + 10 bits digits + 26 bits letters = 40 bits needed -> store in first bits of u64
-  /// - modifiers bits are in the following order; control, shift, alt, super
+  /// - 4 bits modifiers + 10 bits digits + 26 bits letters = 40 bits needed -> store packed in first bits of u64
+  /// - 0b00000000 00000000 00000000 0ddddddd ddaaaaaa aaaaaaaa aaaaaaaa aaaammmm
   pub repr: u64,
 }
 
@@ -28,11 +28,11 @@ impl Key {
     .unwrap();
 
     #[rustfmt::skip]
-    let alt_pressed = task::spawn_blocking(|| unsafe {
-      GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0
-    })
-    .await
-    .unwrap();
+        let alt_pressed = task::spawn_blocking(|| unsafe {
+            GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0
+        })
+        .await
+        .unwrap();
 
     let super_pressed = task::spawn_blocking(|| unsafe {
       GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000 != 0
@@ -43,12 +43,14 @@ impl Key {
 
     let mut key = Key { repr: 0 };
 
-    key.repr |= ctrl_pressed as u64;
+    key.repr |= ctrl_pressed as u64; //<< 0
     key.repr |= (shift_pressed as u64) << 1;
     key.repr |= (alt_pressed as u64) << 2;
     key.repr |= (super_pressed as u64) << 3;
 
-    for (i, vk) in (b'A'..=b'Z').chain(b'1'..=b'9').enumerate() {
+    // letters A..=Z
+    for i in 0..26 {
+      let vk = b'A' + i as u8;
       let key_pressed =
         task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
           .await
@@ -56,23 +58,33 @@ impl Key {
       key.repr |= (key_pressed as u64) << (4 + i);
     }
 
+    // digits 0..=9
+    for i in 0..10 {
+      let vk = b'0' + i as u8;
+      let key_pressed =
+        task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
+          .await
+          .unwrap();
+      key.repr |= (key_pressed as u64) << (4 + 26 + i);
+    }
+
     key
   }
 
-  pub fn from_names<S: AsRef<str>>(key_names: &[S]) -> Self {
+  pub fn from_names(key_names: impl IntoIterator<Item=String>) -> Self {
     let mut repr: u64 = 0;
-    for key_name in key_names {
-      let key_name = key_name.as_ref();
-      match key_name {
-        "Ctrl" => repr |= 1 << 0,
-        "Shift" => repr |= 1 << 1,
-        "Alt" => repr |= 1 << 2,
-        "Super" => repr |= 1 << 3,
+    for mut key_name in key_names {
+      key_name.make_ascii_lowercase();
+      match &key_name[..] {
+        "ctrl" => repr |= 1 << 0,
+        "shift" => repr |= 1 << 1,
+        "alt" => repr |= 1 << 2,
+        "super" => repr |= 1 << 3,
         key if key.len() == 1 => {
           let char_code = key.chars().next().unwrap() as u64;
           match char_code as u8 {
             b'A'..=b'Z' => repr |= 1 << (4 + (char_code - b'A' as u64)),
-            b'0'..=b'9' => repr |= 1 << (14 + (char_code - b'0' as u64)),
+            b'0'..=b'9' => repr |= 1 << (4 + 26 + (char_code - b'0' as u64)),
             _ => {}
           }
         }

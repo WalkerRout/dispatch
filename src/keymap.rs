@@ -20,22 +20,18 @@ struct KeymapFormat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keymap(pub HashMap<Key, Script>);
 
-impl TryFrom<&[u8]> for Keymap {
-  type Error = anyhow::Error;
+pub fn parse_json(json_bytes: &[u8]) -> Result<Keymap, anyhow::Error> {
+  let parsed: KeymapFormat = serde_json::from_slice(json_bytes)?;
 
-  fn try_from(json_bytes: &[u8]) -> Result<Self, Self::Error> {
-    let parsed: KeymapFormat = serde_json::from_slice(json_bytes)?;
+  let mut map: HashMap<Key, Script> = HashMap::new();
 
-    let mut map: HashMap<Key, Script> = HashMap::new();
-
-    for keybind in parsed.keybinds {
-      let key = Key::from_names(&keybind.keys);
-      let script = keybind.script;
-      map.insert(key, script);
-    }
-
-    Ok(Keymap(map))
+  for keybind in parsed.keybinds {
+    let key = Key::from_names(keybind.keys);
+    let script = keybind.script;
+    map.insert(key, script);
   }
+
+  Ok(Keymap(map))
 }
 
 impl Deref for Keymap {
