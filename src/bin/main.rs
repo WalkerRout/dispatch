@@ -70,7 +70,6 @@ async fn main() {
   let listener = TcpListener::bind("127.0.0.1:3599")
     .await
     .expect("open port 3599");
-
   let tcp_server = tokio::spawn(
     async move {
       use tokio::io::AsyncReadExt;
