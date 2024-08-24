@@ -31,7 +31,7 @@ impl HotkeyFilter {
               None => continue,
             }
           };
-          info!("received mapping from {key:?} to {}", &script);
+          info!("filtered out mapping from {key:?} to {}", &script);
           if let Err(e) = self.tx_script.send(script) {
             error!("failed to send across tx_script - {e}");
             warn!("STOPPING");

@@ -38,11 +38,12 @@ impl ConfigMonitor {
           if bytes.is_empty() {
             continue;
           }
-          if let Ok(new_map) = Keymap::try_from(&bytes[..]) {
-            *table.write().await = new_map;
-            info!("dispatch config valid and updated");
-          } else {
-            warn!("saved dispatch config in invalid state");
+          match Keymap::try_from(&bytes[..]) {
+            Ok(new_map) => {
+              *table.write().await = new_map;
+              info!("dispatch config successfully updated");
+            }
+            Err(e) => warn!("invalid dispatch config state saved - {e}"),
           }
         }
         Some(WatcherPayload::Error(e)) => {
@@ -134,7 +135,7 @@ fn async_watcher<P: AsRef<Path>>(
 
   // send initial config from first read
   if let Err(e) = tx.try_send(WatcherPayload::Bytes(initial_config)) {
-    error!("failed to send event from watcher - {e}");
+    error!("failed to send initial config - {e}");
   }
 
   Ok((rx, watcher))

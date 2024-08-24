@@ -5,7 +5,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use tokio_util::sync::CancellationToken;
 
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument, warn, Instrument, Span};
 
 use crate::script::Script;
 use crate::{Context, Service};
@@ -19,14 +19,18 @@ impl ScriptRunner {
     loop {
       match self.rx_script.recv().await {
         Some(script) => {
-          tokio::spawn(async move {
-            let mut cmd = command(&script);
-            // spawn and drop handle to child -> will continue running
-            match cmd.spawn() {
-              Ok(_) => info!("spawned - {script}"),
-              Err(e) => error!("failed to spawn - {e} - {script}"),
+          // how would I have the RUNNER instrument follow this spawn?
+          tokio::spawn(
+            async move {
+              let mut cmd = command(&script);
+              // spawn and drop handle to child -> will continue running
+              match cmd.spawn() {
+                Ok(_) => info!("spawned - {script}"),
+                Err(e) => error!("failed to spawn - {e} - {script}"),
+              }
             }
-          });
+            .instrument(Span::current()),
+          );
         }
         None => {
           error!("failed to receive across rx_script");
