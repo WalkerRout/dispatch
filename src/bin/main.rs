@@ -21,9 +21,9 @@ use dispatcher::runner::ScriptRunner;
 use dispatcher::server::TcpServer;
 use dispatcher::{Application, Context, Service};
 
-struct Dispatcher {}
+struct Dispatch {}
 
-impl Application for Dispatcher {
+impl Application for Dispatch {
   type Context = Context;
 }
 
@@ -66,8 +66,8 @@ async fn main() {
     table: Arc::new(RwLock::new(Keymap(HashMap::new()))),
   };
 
-  let dispatcher = Dispatcher {};
-  info!("dispatcher initialized...");
-  dispatcher.invoke_all(context, services).await;
-  info!("dispatcher terminated...\n\n");
+  let dispatch = Dispatch {};
+  info!("dispatch initialized...");
+  dispatch.invoke_all(context, services).await;
+  info!("dispatch terminated...\n\n");
 }
