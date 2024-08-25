@@ -30,11 +30,11 @@ impl Key {
     .unwrap();
 
     #[rustfmt::skip]
-        let alt_pressed = task::spawn_blocking(|| unsafe {
-            GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0
-        })
-        .await
-        .unwrap();
+    let alt_pressed = task::spawn_blocking(|| unsafe {
+      GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0
+    })
+    .await
+    .unwrap();
 
     let super_pressed = task::spawn_blocking(|| unsafe {
       GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000 != 0
@@ -43,12 +43,11 @@ impl Key {
     .await
     .unwrap();
 
-    let mut key = Key { repr: 0 };
-
-    key.repr |= ctrl_pressed as u64; //<< 0
-    key.repr |= (shift_pressed as u64) << 1;
-    key.repr |= (alt_pressed as u64) << 2;
-    key.repr |= (super_pressed as u64) << 3;
+    let mut repr = 0;
+    repr |= ctrl_pressed as u64; //<< 0
+    repr |= (shift_pressed as u64) << 1;
+    repr |= (alt_pressed as u64) << 2;
+    repr |= (super_pressed as u64) << 3;
 
     // letters A..=Z
     for i in 0..26 {
@@ -57,7 +56,7 @@ impl Key {
         task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
           .await
           .unwrap();
-      key.repr |= (key_pressed as u64) << (4 + i);
+      repr |= (key_pressed as u64) << (4 + i);
     }
 
     // digits 0..=9
@@ -67,10 +66,10 @@ impl Key {
         task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
           .await
           .unwrap();
-      key.repr |= (key_pressed as u64) << (4 + 26 + i);
+      repr |= (key_pressed as u64) << (4 + 26 + i);
     }
 
-    key
+    Key { repr }
   }
 
   pub fn from_names(key_names: impl IntoIterator<Item = String>) -> Self {
