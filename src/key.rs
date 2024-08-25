@@ -8,12 +8,12 @@ use tracing::warn;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Key {
   /// Keys can modify each other; need to store a bitfield of possible selected values
   /// - 4 bits modifiers + 10 bits digits + 26 bits letters = 40 bits needed -> store packed in first bits of u64
   /// - 0b00000000 00000000 00000000 0ddddddd ddaaaaaa aaaaaaaa aaaaaaaa aaaammmm
-  pub repr: u64,
+  repr: u64,
 }
 
 impl Key {

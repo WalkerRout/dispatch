@@ -18,11 +18,10 @@ pub struct KeybindListener {
 
 impl KeybindListener {
   async fn listen_for_keypresses(&mut self, token: CancellationToken) {
-    let mut prev_key = Key { repr: 0 };
+    let mut prev_key = Key::default();
     loop {
       let key = Key::from_async_key_state().await;
-
-      if key.repr != 0 && key != prev_key {
+      if key != Key::default() && key != prev_key {
         prev_key = key;
         if let Err(e) = self.tx_key.send(key) {
           error!("failed to send across tx_key - {e}");
@@ -30,7 +29,6 @@ impl KeybindListener {
           token.cancel();
         }
       }
-
       sleep(Duration::from_millis(45)).await;
     }
   }
