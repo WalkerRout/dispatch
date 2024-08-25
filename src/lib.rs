@@ -15,6 +15,7 @@ pub mod listener;
 pub mod monitor;
 pub mod runner;
 pub mod script;
+pub mod server;
 
 #[async_trait]
 pub trait Service {
