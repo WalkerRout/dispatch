@@ -18,10 +18,12 @@ pub struct Key {
 
 impl Key {
   pub async fn from_async_key_state() -> Self {
-    let shift_pressed =
-      task::spawn_blocking(|| unsafe { GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000 != 0 })
-        .await
-        .unwrap();
+    #[rustfmt::skip]
+    let shift_pressed = task::spawn_blocking(|| unsafe {
+      GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000 != 0
+    })
+    .await
+    .unwrap();
 
     let ctrl_pressed = task::spawn_blocking(|| unsafe {
       GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000 != 0
