@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{self, Receiver};
 use tokio::sync::RwLock;
 
 use tokio_util::sync::CancellationToken;
+
 use tracing::{error, info, instrument, warn};
 
 use crate::keymap::{self, Keymap};
