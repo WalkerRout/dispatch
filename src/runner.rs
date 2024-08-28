@@ -19,7 +19,6 @@ impl ScriptRunner {
     loop {
       match self.rx_script.recv().await {
         Some(script) => {
-          // how would I have the RUNNER instrument follow this spawn?
           tokio::spawn(
             async move {
               let mut cmd = command(&script);
@@ -29,6 +28,7 @@ impl ScriptRunner {
                 Err(e) => error!("failed to spawn - {e} - {script}"),
               }
             }
+            // follow spawn with current span!
             .instrument(Span::current()),
           );
         }
