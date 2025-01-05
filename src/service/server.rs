@@ -8,18 +8,20 @@ use tokio_util::sync::CancellationToken;
 
 use tracing::{info, instrument, warn, Instrument, Span};
 
+use crate::model::message::ShutdownDispatcher;
+
 #[derive(Default)]
-pub struct ServerService {
+pub struct Server {
   cancel_token: CancellationToken,
 }
 
-impl ServerService {
+impl Server {
   pub fn new(cancel_token: CancellationToken) -> Self {
     Self { cancel_token }
   }
 }
 
-impl Actor for ServerService {
+impl Actor for Server {
   type Context = Context<Self>;
 
   #[instrument(name = "SERVER", skip(self, ctx))]
@@ -38,7 +40,9 @@ impl Actor for ServerService {
   }
 }
 
-async fn run_server(listener: TcpListener, this: Addr<ServerService>) {
+// we might include more messages that the server can handle, so this should stay
+// as an Addr<Server>...
+async fn run_server(listener: TcpListener, this: Addr<Server>) {
   while let Ok((mut stream, _)) = listener.accept().await {
     let mut buf = [0; 1024];
     let n = stream
@@ -56,11 +60,7 @@ async fn run_server(listener: TcpListener, this: Addr<ServerService>) {
   }
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "()")]
-struct ShutdownDispatcher;
-
-impl Handler<ShutdownDispatcher> for ServerService {
+impl Handler<ShutdownDispatcher> for Server {
   type Result = ();
 
   #[instrument(name = "SERVER", skip(self, _msg, _ctx))]

@@ -2,32 +2,28 @@ use actix::prelude::*;
 
 use tracing::instrument;
 
-use crate::model::{Key, Keymap, Script};
+use crate::model::keymap::Keymap;
+use crate::model::script::Script;
+use crate::model::message::{GetScript, UpdateConfig};
 
-#[derive(Debug, Message)]
-#[rtype(result = "Option<String>")]
-pub struct GetScript(pub Key);
-
-#[derive(Debug, Message)]
-#[rtype(result = "()")]
-pub struct UpdateConfig(pub Keymap);
-
+/// A config is a keymap that represents a 'global truth' for which keys are valid
 #[derive(Default)]
-pub struct ConfigService {
+pub struct Config {
   commands: Keymap,
 }
 
-impl ConfigService {
+impl Config {
   pub fn new() -> Self {
     Self::default()
   }
 }
 
-impl Actor for ConfigService {
+impl Actor for Config {
   type Context = Context<Self>;
 }
 
-impl Handler<GetScript> for ConfigService {
+// others can request (get) scripts from this config...
+impl Handler<GetScript> for Config {
   type Result = Option<Script>;
 
   #[instrument(name = "CONFIG", skip(self, _ctx))]
@@ -36,7 +32,8 @@ impl Handler<GetScript> for ConfigService {
   }
 }
 
-impl Handler<UpdateConfig> for ConfigService {
+// others can also update (set) this config...
+impl Handler<UpdateConfig> for Config {
   type Result = ();
 
   #[instrument(name = "CONFIG", skip(self, _ctx))]

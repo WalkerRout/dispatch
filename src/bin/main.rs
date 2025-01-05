@@ -9,12 +9,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 
-use dispatch::config::ConfigService;
-use dispatch::filter::FilterService;
-use dispatch::listener::KeybindListenerService;
-use dispatch::monitor::MonitorService;
-use dispatch::runner::RunnerService;
-use dispatch::server::ServerService;
+use dispatch::service::config::Config;
+use dispatch::service::filter::Filter;
+use dispatch::service::listener::Listener;
+use dispatch::service::monitor::Monitor;
+use dispatch::service::runner::Runner;
+use dispatch::service::server::Server;
 
 #[actix_rt::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -36,14 +36,14 @@ async fn main() -> Result<(), anyhow::Error> {
   log_panics::init();
 
   let cancel_token = CancellationToken::new();
-  let _server = ServerService::new(cancel_token.clone()).start();
+  let _server = Server::new(cancel_token.clone()).start();
 
-  let config = ConfigService::new().start();
-  let _monitor = MonitorService::new(config.clone()).start();
+  let config = Config::new().start();
+  let _monitor = Monitor::new(config.clone().into()).start();
 
-  let runner = RunnerService::new().start();
-  let filter = FilterService::new(config.clone(), runner.clone()).start();
-  let _key_listener = KeybindListenerService::new(filter.clone()).start();
+  let runner = Runner::new().start();
+  let filter = Filter::new(config.clone().into(), runner.clone().into()).start();
+  let _key_listener = Listener::new(filter.clone().into()).start();
 
   info!("all services started...");
   cancel_token.cancelled().await;

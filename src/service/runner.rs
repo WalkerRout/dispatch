@@ -4,24 +4,24 @@ use tokio::process::Command;
 
 use tracing::{error, info, instrument, Instrument, Span};
 
-#[derive(Debug, Message)]
-#[rtype(result = "()")]
-pub struct RunCommand(pub String);
+use crate::model::message::RunCommand;
 
+/// A runner receives some shell scripts and invokes them in a child process on
+/// the host OS
 #[derive(Default)]
-pub struct RunnerService;
+pub struct Runner;
 
-impl RunnerService {
+impl Runner {
   pub fn new() -> Self {
     Self
   }
 }
 
-impl Actor for RunnerService {
+impl Actor for Runner {
   type Context = Context<Self>;
 }
 
-impl Handler<RunCommand> for RunnerService {
+impl Handler<RunCommand> for Runner {
   type Result = ();
 
   #[instrument(name = "RUNNER", skip(self, msg, ctx))]

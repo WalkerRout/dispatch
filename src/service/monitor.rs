@@ -9,29 +9,26 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use tracing::{error, info, instrument, warn, Instrument, Span};
 
-use crate::config::{ConfigService, UpdateConfig};
-use crate::model::parse_json;
+use crate::model::keymap;
+use crate::model::message::UpdateConfig;
 
-pub enum WatcherPayload {
-  Bytes(Vec<u8>),
-  Error(anyhow::Error),
-}
-
-pub struct MonitorService {
-  config_addr: Addr<ConfigService>,
+/// A monitor watches a file for changes, sending a newly parsed keymap to some
+/// config
+pub struct Monitor {
+  config_rec: Recipient<UpdateConfig>,
   _watcher: Option<RecommendedWatcher>,
 }
 
-impl MonitorService {
-  pub fn new(config_addr: Addr<ConfigService>) -> Self {
+impl Monitor {
+  pub fn new(config_rec: Recipient<UpdateConfig>) -> Self {
     Self {
-      config_addr,
+      config_rec,
       _watcher: None,
     }
   }
 }
 
-impl Actor for MonitorService {
+impl Actor for Monitor {
   type Context = Context<Self>;
 
   #[instrument(name = "MONITOR", skip(self, ctx))]
@@ -41,7 +38,7 @@ impl Actor for MonitorService {
       Ok(obs) => obs,
       Err(e) => panic!("{e}"),
     };
-    let config_addr = self.config_addr.clone();
+    let config_rec = self.config_rec.clone();
 
     self._watcher = Some(watcher);
 
@@ -53,15 +50,16 @@ impl Actor for MonitorService {
             if bytes.is_empty() {
               continue;
             }
-            match parse_json(&bytes[..]) {
+            match keymap::parse_json(&bytes[..]) {
               Ok(new_map) => {
-                config_addr.do_send(UpdateConfig(new_map));
+                config_rec.do_send(UpdateConfig(new_map));
                 info!("dispatch config successfully updated");
               }
               Err(e) => warn!("invalid dispatch config state saved - {e}"),
             }
           }
-          Some(WatcherPayload::Error(e)) => panic!("monitor failed to track changes - {e}"),
+          Some(WatcherPayload::Error(e)) => error!("monitor failed to track changes - {e}"),
+          // todo; make the monitor accept NowWatch message that updates the thing its watching...
           None => panic!("failed to receive from monitor tx"),
         }
       }
@@ -70,6 +68,11 @@ impl Actor for MonitorService {
     .into_actor(self)
     .spawn(ctx);
   }
+}
+
+enum WatcherPayload {
+  Bytes(Vec<u8>),
+  Error(anyhow::Error),
 }
 
 fn async_watcher<P: AsRef<Path>>(

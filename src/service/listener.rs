@@ -5,37 +5,34 @@ use actix_rt::time::sleep;
 
 use tracing::{info, instrument, Instrument, Span};
 
-use crate::filter::FilterService;
-use crate::model::Key;
+use crate::model::key::Key;
+use crate::model::message::KeyDetected;
 
-#[derive(Debug, Message)]
-#[rtype(result = "()")]
-pub struct KeyDetected(pub Key);
-
-pub struct KeybindListenerService {
-  filter_addr: Addr<FilterService>,
+/// A listener detects keypresses, and sends them to some sink
+pub struct Listener {
+  filter_rec: Recipient<KeyDetected>,
 }
 
-impl KeybindListenerService {
-  pub fn new(filter_addr: Addr<FilterService>) -> Self {
-    Self { filter_addr }
+impl Listener {
+  pub fn new(filter_rec: Recipient<KeyDetected>) -> Self {
+    Self { filter_rec }
   }
 }
 
-impl Actor for KeybindListenerService {
+impl Actor for Listener {
   type Context = Context<Self>;
 
   #[instrument(name = "LISTENER", skip(self, ctx))]
   fn started(&mut self, ctx: &mut Self::Context) {
     info!("listening for keypresses...");
-    let filter_addr = self.filter_addr.clone();
+    let filter_rec = self.filter_rec.clone();
     async move {
       let mut prev_key = Key::default();
       loop {
         let key = Key::from_async_key_state().await;
         if key != Key::default() && key != prev_key {
           prev_key = key;
-          filter_addr.do_send(KeyDetected(key));
+          filter_rec.do_send(KeyDetected(key));
         }
         sleep(Duration::from_millis(45)).await;
       }
