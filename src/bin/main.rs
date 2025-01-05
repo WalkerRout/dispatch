@@ -1,35 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::sync::Arc;
 
-use tokio::net::TcpListener;
-use tokio::sync::mpsc;
-use tokio::sync::RwLock;
+use actix::prelude::*;
 
 use tokio_util::sync::CancellationToken;
 
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 
-use dispatcher::filter::HotkeyFilter;
-use dispatcher::keymap::Keymap;
-use dispatcher::listener::KeybindListener;
-use dispatcher::monitor::ConfigMonitor;
-use dispatcher::runner::ScriptRunner;
-use dispatcher::server::TcpServer;
-use dispatcher::{Application, Context, Service};
+use dispatch::config::ConfigService;
+use dispatch::filter::FilterService;
+use dispatch::listener::KeybindListenerService;
+use dispatch::monitor::MonitorService;
+use dispatch::runner::RunnerService;
+use dispatch::server::ServerService;
 
-struct Dispatch {}
-
-impl Application for Dispatch {
-  type Context = Context;
-}
-
-// current_thread or multi_thread
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+#[actix_rt::main]
+async fn main() -> Result<(), anyhow::Error> {
   let logfile = OpenOptions::new()
     .write(true)
     .create(true)
@@ -38,7 +26,7 @@ async fn main() {
     .expect("open log file");
 
   tracing_subscriber::fmt()
-    .with_max_level(LevelFilter::DEBUG)
+    .with_max_level(LevelFilter::INFO)
     .with_target(false)
     .with_thread_ids(true)
     .with_ansi(false)
@@ -47,27 +35,22 @@ async fn main() {
 
   log_panics::init();
 
-  let services: Vec<Box<dyn Service<Context = Context> + Send + 'static>> = {
-    let (tx_key, rx_key) = mpsc::unbounded_channel();
-    let (tx_script, rx_script) = mpsc::unbounded_channel();
-    let listener = TcpListener::bind("127.0.0.1:3599")
-      .await
-      .expect("open port 3599");
-    vec![
-      Box::new(TcpServer { listener }),
-      Box::new(KeybindListener { tx_key }),
-      Box::new(ConfigMonitor {}),
-      Box::new(HotkeyFilter { rx_key, tx_script }),
-      Box::new(ScriptRunner { rx_script }),
-    ]
-  };
-  let context = Context {
-    token: CancellationToken::new(),
-    table: Arc::new(RwLock::new(Keymap(HashMap::new()))),
-  };
+  let cancel_token = CancellationToken::new();
+  let _server = ServerService::new(cancel_token.clone()).start();
 
-  let dispatch = Dispatch {};
-  info!("dispatch initialized...");
-  dispatch.invoke_all(context, services).await;
-  info!("dispatch terminated...\n\n");
+  let config = ConfigService::new().start();
+  let _monitor = MonitorService::new(config.clone()).start();
+
+  let runner = RunnerService::new().start();
+  let filter = FilterService::new(config.clone(), runner.clone()).start();
+  let _key_listener = KeybindListenerService::new(filter.clone()).start();
+
+  info!("all services started...");
+  cancel_token.cancelled().await;
+  info!("shutting down...\n");
+
+  // explicitly shutdown current system
+  System::current().stop();
+
+  Ok(())
 }

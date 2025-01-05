@@ -1,50 +1,71 @@
 use std::str;
 
-use async_trait::async_trait;
+use actix::prelude::*;
+use actix_rt::net::TcpListener;
 
 use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
-
 use tokio_util::sync::CancellationToken;
 
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument, warn, Instrument, Span};
 
-use crate::{Context, Service};
-
-pub struct TcpServer {
-  pub listener: TcpListener,
+#[derive(Default)]
+pub struct ServerService {
+  cancel_token: CancellationToken,
 }
 
-impl TcpServer {
-  async fn listen_for_connections(&mut self, token: CancellationToken) {
-    while let Ok((mut stream, _)) = self.listener.accept().await {
-      let mut buf = [0; 1024];
-      let n = stream
-        .read(&mut buf)
+impl ServerService {
+  pub fn new(cancel_token: CancellationToken) -> Self {
+    Self { cancel_token }
+  }
+}
+
+impl Actor for ServerService {
+  type Context = Context<Self>;
+
+  #[instrument(name = "SERVER", skip(self, ctx))]
+  fn started(&mut self, ctx: &mut Self::Context) {
+    info!("starting webserver for keypresses...");
+    let this = ctx.address();
+    async move {
+      let listener = TcpListener::bind("127.0.0.1:3599")
         .await
-        .expect("read from stream into buffer");
-      if let Ok(s) = str::from_utf8(&buf[0..n]) {
-        let trimmed = s.trim();
-        info!("received data from TCP port: {trimmed}");
-        if trimmed == "shutdown" {
-          warn!("shutdown received");
-          warn!("STOPPING");
-          token.cancel();
-        }
+        .expect("open port 3599");
+      run_server(listener, this).await;
+    }
+    .instrument(Span::current())
+    .into_actor(self)
+    .spawn(ctx);
+  }
+}
+
+async fn run_server(listener: TcpListener, this: Addr<ServerService>) {
+  while let Ok((mut stream, _)) = listener.accept().await {
+    let mut buf = [0; 1024];
+    let n = stream
+      .read(&mut buf)
+      .await
+      .expect("read from stream into buffer");
+    if let Ok(s) = str::from_utf8(&buf[0..n]) {
+      let trimmed = s.trim();
+      info!("received data from TCP port: {trimmed}");
+      if trimmed == "shutdown" {
+        warn!("shutdown received");
+        this.do_send(ShutdownDispatcher);
       }
     }
   }
 }
 
-#[async_trait]
-impl Service for TcpServer {
-  type Context = Context;
-  #[instrument(name = "SERVER", skip(self, ctx))]
-  async fn invoke(&mut self, ctx: Self::Context) {
-    tokio::select! {
-      () = self.listen_for_connections(ctx.token.clone()) => (),
-      () = ctx.token.cancelled() => (),
-    }
-    warn!("stopping gracefully");
+#[derive(Debug, Message)]
+#[rtype(result = "()")]
+struct ShutdownDispatcher;
+
+impl Handler<ShutdownDispatcher> for ServerService {
+  type Result = ();
+
+  #[instrument(name = "SERVER", skip(self, _msg, _ctx))]
+  fn handle(&mut self, _msg: ShutdownDispatcher, _ctx: &mut Self::Context) -> Self::Result {
+    // we are blocking on this cancellation token, letting go will end our actor threads...
+    self.cancel_token.cancel();
   }
 }

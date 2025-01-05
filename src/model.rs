@@ -1,19 +1,20 @@
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+
+use serde::{Deserialize, Serialize};
+
 use windows::Win32::UI::Input::KeyboardAndMouse::{
   GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 
-use tokio::task;
-
-use tracing::warn;
-
-use serde::{Deserialize, Serialize};
+use actix_rt::task;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Key {
   /// Keys can modify each other; need to store a bitfield of possible selected values
   /// - 4 bits modifiers + 10 bits digits + 26 bits letters = 40 bits needed -> store packed in first bits of u64
   /// - 0b00000000 00000000 00000000 0ddddddd ddaaaaaa aaaaaaaa aaaaaaaa aaaammmm
-  repr: u64,
+  pub repr: u64,
 }
 
 impl Key {
@@ -91,9 +92,49 @@ impl Key {
             _ => {}
           }
         }
-        key => warn!("did not recognize key: {key}"),
+        key => panic!("did not recognize key: {key}"),
       }
     }
     Key { repr }
+  }
+}
+
+pub type Script = String;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Keybind {
+  keys: Vec<String>,
+  script: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct KeymapFormat {
+  keybinds: Vec<Keybind>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Keymap(pub HashMap<Key, Script>);
+
+pub fn parse_json(json_bytes: &[u8]) -> Result<Keymap, anyhow::Error> {
+  let parsed: KeymapFormat = serde_json::from_slice(json_bytes)?;
+  let mut map: HashMap<Key, Script> = HashMap::new();
+  for keybind in parsed.keybinds {
+    let key = Key::from_names(keybind.keys);
+    let script = keybind.script;
+    map.insert(key, script);
+  }
+  Ok(Keymap(map))
+}
+
+impl Deref for Keymap {
+  type Target = HashMap<Key, Script>;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Keymap {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
   }
 }

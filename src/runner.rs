@@ -1,57 +1,43 @@
-use async_trait::async_trait;
+use actix::prelude::*;
 
 use tokio::process::Command;
-use tokio::sync::mpsc::UnboundedReceiver;
 
-use tokio_util::sync::CancellationToken;
+use tracing::{error, info, instrument, Instrument, Span};
 
-use tracing::{error, info, instrument, warn, Instrument, Span};
+#[derive(Debug, Message)]
+#[rtype(result = "()")]
+pub struct RunCommand(pub String);
 
-use crate::script::Script;
-use crate::{Context, Service};
+#[derive(Default)]
+pub struct RunnerService;
 
-pub struct ScriptRunner {
-  pub rx_script: UnboundedReceiver<Script>,
-}
-
-impl ScriptRunner {
-  async fn listen_for_scripts(&mut self, token: CancellationToken) {
-    loop {
-      match self.rx_script.recv().await {
-        Some(script) => {
-          tokio::spawn(
-            async move {
-              let mut cmd = command(&script);
-              // spawn and drop handle to child -> will continue running
-              match cmd.spawn() {
-                Ok(_) => info!("spawned - {script}"),
-                Err(e) => error!("failed to spawn - {e} - {script}"),
-              }
-            }
-            // follow spawn with current span!
-            .instrument(Span::current()),
-          );
-        }
-        None => {
-          error!("failed to receive across rx_script");
-          warn!("STOPPING");
-          token.cancel();
-        }
-      }
-    }
+impl RunnerService {
+  pub fn new() -> Self {
+    Self
   }
 }
 
-#[async_trait]
-impl Service for ScriptRunner {
-  type Context = Context;
-  #[instrument(name = "RUNNER", skip(self, ctx))]
-  async fn invoke(&mut self, ctx: Self::Context) {
-    tokio::select! {
-      () = self.listen_for_scripts(ctx.token.clone()) => {},
-      () = ctx.token.cancelled() => (),
+impl Actor for RunnerService {
+  type Context = Context<Self>;
+}
+
+impl Handler<RunCommand> for RunnerService {
+  type Result = ();
+
+  #[instrument(name = "RUNNER", skip(self, msg, ctx))]
+  fn handle(&mut self, msg: RunCommand, ctx: &mut Context<Self>) -> Self::Result {
+    let script = msg.0;
+    async move {
+      let mut cmd = command(&script);
+      // spawn and drop handle to child -> will continue running
+      match cmd.spawn() {
+        Ok(_) => info!("spawned - {script}"),
+        Err(e) => error!("failed to spawn - {e} - {script}"),
+      }
     }
-    warn!("stopping gracefully");
+    .instrument(Span::current())
+    .into_actor(self)
+    .spawn(ctx);
   }
 }
 

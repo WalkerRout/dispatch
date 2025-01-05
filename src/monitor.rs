@@ -1,89 +1,81 @@
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
-use async_trait::async_trait;
+use actix::prelude::*;
+
+use tokio::sync::mpsc::{self, Receiver};
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use tokio::sync::mpsc::{self, Receiver};
-use tokio::sync::RwLock;
+use tracing::{error, info, instrument, warn, Instrument, Span};
 
-use tokio_util::sync::CancellationToken;
+use crate::config::{ConfigService, UpdateConfig};
+use crate::model::parse_json;
 
-use tracing::{error, info, instrument, warn};
-
-use crate::keymap::{self, Keymap};
-use crate::{Context, Service};
-
-pub struct ConfigMonitor {}
-
-impl ConfigMonitor {
-  async fn monitor_files(&mut self, token: CancellationToken, table: Arc<RwLock<Keymap>>) {
-    // can only handle single file as of now
-    let path = "dispatch.json";
-    let (mut file_events, _watcher) = match async_watcher(path) {
-      Ok(obs) => obs,
-      Err(e) => {
-        error!("unable to debounce watch - {e}");
-        warn!("STOPPING");
-        token.cancel();
-        return;
-      }
-    };
-
-    loop {
-      match file_events.recv().await {
-        Some(WatcherPayload::Bytes(bytes)) => {
-          // sent nothing, try again
-          if bytes.is_empty() {
-            continue;
-          }
-          match keymap::parse_json(&bytes[..]) {
-            Ok(new_map) => {
-              *table.write().await = new_map;
-              info!("dispatch config successfully updated");
-            }
-            Err(e) => warn!("invalid dispatch config state saved - {e}"),
-          }
-        }
-        Some(WatcherPayload::Error(e)) => {
-          error!("monitor failed to track changes - {e}");
-          warn!("STOPPING");
-          token.cancel();
-        }
-        None => {
-          error!("failed to receive from monitor tx");
-          warn!("STOPPING");
-          token.cancel();
-        }
-      }
-    }
-  }
-}
-
-#[async_trait]
-impl Service for ConfigMonitor {
-  type Context = Context;
-  #[instrument(name = "CONFIG", skip(self, ctx))]
-  async fn invoke(&mut self, ctx: Self::Context) {
-    tokio::select! {
-      () = self.monitor_files(ctx.token.clone(), Arc::clone(&ctx.table)) => (),
-      () = ctx.token.cancelled() => (),
-    }
-    warn!("stopping gracefully");
-  }
-}
-
-enum WatcherPayload {
+pub enum WatcherPayload {
   Bytes(Vec<u8>),
   Error(anyhow::Error),
+}
+
+pub struct MonitorService {
+  config_addr: Addr<ConfigService>,
+  _watcher: Option<RecommendedWatcher>,
+}
+
+impl MonitorService {
+  pub fn new(config_addr: Addr<ConfigService>) -> Self {
+    Self {
+      config_addr,
+      _watcher: None,
+    }
+  }
+}
+
+impl Actor for MonitorService {
+  type Context = Context<Self>;
+
+  #[instrument(name = "MONITOR", skip(self, ctx))]
+  fn started(&mut self, ctx: &mut Self::Context) {
+    let path = "dispatch.json";
+    let (mut file_events, watcher) = match async_watcher(path) {
+      Ok(obs) => obs,
+      Err(e) => panic!("{e}"),
+    };
+    let config_addr = self.config_addr.clone();
+
+    self._watcher = Some(watcher);
+
+    async move {
+      loop {
+        match file_events.recv().await {
+          Some(WatcherPayload::Bytes(bytes)) => {
+            // sent nothing, try again
+            if bytes.is_empty() {
+              continue;
+            }
+            match parse_json(&bytes[..]) {
+              Ok(new_map) => {
+                config_addr.do_send(UpdateConfig(new_map));
+                info!("dispatch config successfully updated");
+              }
+              Err(e) => warn!("invalid dispatch config state saved - {e}"),
+            }
+          }
+          Some(WatcherPayload::Error(e)) => panic!("monitor failed to track changes - {e}"),
+          None => panic!("failed to receive from monitor tx"),
+        }
+      }
+    }
+    .instrument(Span::current())
+    .into_actor(self)
+    .spawn(ctx);
+  }
 }
 
 fn async_watcher<P: AsRef<Path>>(
   path: P,
 ) -> Result<(Receiver<WatcherPayload>, RecommendedWatcher), anyhow::Error> {
-  let (tx, rx) = mpsc::channel(1);
+  let (tx, rx) = mpsc::channel(4);
 
   let mut watcher = {
     let tx = tx.clone();

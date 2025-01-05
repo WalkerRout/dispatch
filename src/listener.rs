@@ -1,48 +1,47 @@
-use std::time::Duration;
+use tokio::time::Duration;
 
-use async_trait::async_trait;
+use actix::prelude::*;
+use actix_rt::time::sleep;
 
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::time::sleep;
+use tracing::{info, instrument, Instrument, Span};
 
-use tokio_util::sync::CancellationToken;
+use crate::filter::FilterService;
+use crate::model::Key;
 
-use tracing::{error, instrument, warn};
+#[derive(Debug, Message)]
+#[rtype(result = "()")]
+pub struct KeyDetected(pub Key);
 
-use crate::key::Key;
-use crate::{Context, Service};
-
-pub struct KeybindListener {
-  pub tx_key: UnboundedSender<Key>,
+pub struct KeybindListenerService {
+  filter_addr: Addr<FilterService>,
 }
 
-impl KeybindListener {
-  async fn listen_for_keypresses(&mut self, token: CancellationToken) {
-    let mut prev_key = Key::default();
-    loop {
-      let key = Key::from_async_key_state().await;
-      if key != Key::default() && key != prev_key {
-        prev_key = key;
-        if let Err(e) = self.tx_key.send(key) {
-          error!("failed to send across tx_key - {e}");
-          warn!("STOPPING");
-          token.cancel();
-        }
-      }
-      sleep(Duration::from_millis(45)).await;
-    }
+impl KeybindListenerService {
+  pub fn new(filter_addr: Addr<FilterService>) -> Self {
+    Self { filter_addr }
   }
 }
 
-#[async_trait]
-impl Service for KeybindListener {
-  type Context = Context;
+impl Actor for KeybindListenerService {
+  type Context = Context<Self>;
+
   #[instrument(name = "LISTENER", skip(self, ctx))]
-  async fn invoke(&mut self, ctx: Self::Context) {
-    tokio::select! {
-      () = self.listen_for_keypresses(ctx.token.clone()) => (),
-      () = ctx.token.cancelled() => (),
+  fn started(&mut self, ctx: &mut Self::Context) {
+    info!("listening for keypresses...");
+    let filter_addr = self.filter_addr.clone();
+    async move {
+      let mut prev_key = Key::default();
+      loop {
+        let key = Key::from_async_key_state().await;
+        if key != Key::default() && key != prev_key {
+          prev_key = key;
+          filter_addr.do_send(KeyDetected(key));
+        }
+        sleep(Duration::from_millis(45)).await;
+      }
     }
-    warn!("stopping gracefully");
+    .instrument(Span::current())
+    .into_actor(self)
+    .spawn(ctx);
   }
 }
