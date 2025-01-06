@@ -23,10 +23,26 @@ impl Runner {
   fn dispatch_scripts(&mut self, script: Script) -> Pin<Box<dyn Future<Output = ()>>> {
     Box::pin(async move {
       let mut cmd = command(&script);
+      // tokio does not have great guarantees on reaping zombie processes, so we explicitly
+      // await spawned children to guarantee resource cleanup
+      #[cfg(target_family = "unix")]
+      {
+        info!("spawning child");
+        match cmd.spawn() {
+          Ok(mut child) => match child.wait().await {
+            Ok(_) => (),
+            Err(e) => error!("failed to run - {e}"),
+          },
+          Err(e) => error!("failed to spawn - {e} - {script}"),
+        }
+      }
       // spawn and drop handle to child -> will continue running
-      match cmd.spawn() {
-        Ok(_) => info!("spawned - {script}"),
-        Err(e) => error!("failed to spawn - {e} - {script}"),
+      #[cfg(target_family = "windows")]
+      {
+        match cmd.spawn() {
+          Ok(_) => info!("spawned - {script}"),
+          Err(e) => error!("failed to spawn - {e} - {script}"),
+        }
       }
     })
   }
@@ -53,27 +69,30 @@ fn command<C>(cmd: C) -> Command
 where
   C: AsRef<str>,
 {
-  let tokens = command_tokens(cmd);
+  let cmd_str = cmd.as_ref();
+  let tokens = command_tokens(cmd_str);
   if tokens.is_empty() {
     Command::new("")
   } else {
-    let mut command = Command::new(&tokens[0]);
-    command.args(&tokens[1..]);
+    #[cfg(target_family = "unix")]
+    {
+      let mut command = Command::new("sh");
+      command.arg("-c");
+      command.arg(cmd_str);
+      command
+    }
     #[cfg(target_family = "windows")]
     {
       use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+      let mut command = Command::new(&tokens[0]);
+      command.args(&tokens[1..]);
       command.creation_flags(CREATE_NO_WINDOW.0);
+      command
     }
-    command
   }
 }
 
-fn command_tokens<C>(cmd: C) -> Vec<String>
-where
-  C: AsRef<str>,
-{
-  let cmd = cmd.as_ref();
-
+fn command_tokens(cmd: &str) -> Vec<String> {
   let mut tokens = Vec::with_capacity(1);
   let mut string_buffer = String::new();
 

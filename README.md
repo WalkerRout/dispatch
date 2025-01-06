@@ -3,8 +3,8 @@ Define global keyboard shortcuts to execute shell commands
 
 ## Platforms
 - ### ✔️ Windows
-- ### ❌ Linux
-- ### ❌ MacOS
+- ### ✔️ Linux
+- ### ❓MacOS (untested)
 
 Binary expects that file `dispatch.json` exists in the same directory as the executable, `dispatch.log` will be automatically generated on each run.
 
