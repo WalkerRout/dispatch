@@ -2,9 +2,11 @@
 
 use actix::prelude::*;
 
+use device_query::keymap::Keycode;
+
 use crate::model::key::Key;
-use crate::model::script::Script;
 use crate::model::keymap::Keymap;
+use crate::model::script::Script;
 
 /// Well, we should probably have a way to turn it off...
 #[derive(Debug, Message)]
@@ -16,7 +18,11 @@ pub struct ShutdownDispatcher;
 #[rtype(result = "()")]
 pub struct RunCommand(pub Script);
 
-/// And we need to be able to detect a keypress...
+#[derive(Debug, Message)]
+#[rtype(result = "()")]
+pub struct KeyState(pub Vec<Keycode>);
+
+/// And we need to be able to detect an entire keypress...
 #[derive(Debug, Message)]
 #[rtype(result = "()")]
 pub struct KeyDetected(pub Key);

@@ -1,10 +1,4 @@
-use actix_rt::task;
-
 use serde::{Deserialize, Serialize};
-
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-  GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Key {
@@ -15,63 +9,6 @@ pub struct Key {
 }
 
 impl Key {
-  pub async fn from_async_key_state() -> Self {
-    #[rustfmt::skip]
-    let shift_pressed = task::spawn_blocking(|| unsafe {
-      GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000 != 0
-    })
-    .await
-    .unwrap();
-
-    let ctrl_pressed = task::spawn_blocking(|| unsafe {
-      GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000 != 0
-    })
-    .await
-    .unwrap();
-
-    #[rustfmt::skip]
-    let alt_pressed = task::spawn_blocking(|| unsafe {
-      GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0
-    })
-    .await
-    .unwrap();
-
-    let super_pressed = task::spawn_blocking(|| unsafe {
-      GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000 != 0
-        || GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000 != 0
-    })
-    .await
-    .unwrap();
-
-    let mut repr = 0;
-    repr |= ctrl_pressed as u64; //<< 0
-    repr |= (shift_pressed as u64) << 1;
-    repr |= (alt_pressed as u64) << 2;
-    repr |= (super_pressed as u64) << 3;
-
-    // letters A..=Z
-    for i in 0..26 {
-      let vk = b'A' + i as u8;
-      let key_pressed =
-        task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
-          .await
-          .unwrap();
-      repr |= (key_pressed as u64) << (4 + i);
-    }
-
-    // digits 0..=9
-    for i in 0..10 {
-      let vk = b'0' + i as u8;
-      let key_pressed =
-        task::spawn_blocking(move || unsafe { GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0 })
-          .await
-          .unwrap();
-      repr |= (key_pressed as u64) << (4 + 26 + i);
-    }
-
-    Key { repr }
-  }
-
   pub fn from_names(key_names: impl IntoIterator<Item = String>) -> Self {
     let mut repr: u64 = 0;
     for mut key_name in key_names {

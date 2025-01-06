@@ -3,8 +3,8 @@ use actix::prelude::*;
 use tracing::instrument;
 
 use crate::model::keymap::Keymap;
-use crate::model::script::Script;
 use crate::model::message::{GetScript, UpdateConfig};
+use crate::model::script::Script;
 
 /// A config is a keymap that represents a 'global truth' for which keys are valid
 #[derive(Default)]
@@ -26,7 +26,7 @@ impl Actor for Config {
 impl Handler<GetScript> for Config {
   type Result = Option<Script>;
 
-  #[instrument(name = "CONFIG", skip(self, _ctx))]
+  #[instrument(name = "CONFIG", skip(self, msg, _ctx))]
   fn handle(&mut self, msg: GetScript, _ctx: &mut Context<Self>) -> Self::Result {
     self.commands.get(&msg.0).cloned()
   }
@@ -36,7 +36,7 @@ impl Handler<GetScript> for Config {
 impl Handler<UpdateConfig> for Config {
   type Result = ();
 
-  #[instrument(name = "CONFIG", skip(self, _ctx))]
+  #[instrument(name = "CONFIG", skip(self, msg, _ctx))]
   fn handle(&mut self, msg: UpdateConfig, _ctx: &mut Context<Self>) -> Self::Result {
     self.commands = msg.0;
   }

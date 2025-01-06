@@ -1,5 +1,7 @@
 use std::fs;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 
 use actix::prelude::*;
 
@@ -26,23 +28,13 @@ impl Monitor {
       _watcher: None,
     }
   }
-}
 
-impl Actor for Monitor {
-  type Context = Context<Self>;
-
-  #[instrument(name = "MONITOR", skip(self, ctx))]
-  fn started(&mut self, ctx: &mut Self::Context) {
-    let path = "dispatch.json";
-    let (mut file_events, watcher) = match async_watcher(path) {
-      Ok(obs) => obs,
-      Err(e) => panic!("{e}"),
-    };
+  fn monitor_changes(
+    &mut self,
+    mut file_events: Receiver<WatcherPayload>,
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
     let config_rec = self.config_rec.clone();
-
-    self._watcher = Some(watcher);
-
-    async move {
+    Box::pin(async move {
       loop {
         match file_events.recv().await {
           Some(WatcherPayload::Bytes(bytes)) => {
@@ -63,10 +55,26 @@ impl Actor for Monitor {
           None => panic!("failed to receive from monitor tx"),
         }
       }
-    }
-    .instrument(Span::current())
-    .into_actor(self)
-    .spawn(ctx);
+    })
+  }
+}
+
+impl Actor for Monitor {
+  type Context = Context<Self>;
+
+  #[instrument(name = "MONITOR", skip(self, ctx))]
+  fn started(&mut self, ctx: &mut Self::Context) {
+    let path = "dispatch.json";
+    let (file_events, watcher) = match async_watcher(path) {
+      Ok(obs) => obs,
+      Err(e) => panic!("{e}"),
+    };
+    self._watcher = Some(watcher);
+    self
+      .monitor_changes(file_events)
+      .instrument(Span::current())
+      .into_actor(self)
+      .spawn(ctx);
   }
 }
 

@@ -43,14 +43,11 @@ async fn main() -> Result<(), anyhow::Error> {
 
   let runner = Runner::new().start();
   let filter = Filter::new(config.clone().into(), runner.clone().into()).start();
-  let _key_listener = Listener::new(filter.clone().into()).start();
+  let _listener = Listener::new(filter.clone().into()).start();
 
   info!("all services started...");
-  cancel_token.cancelled().await;
-  info!("shutting down...\n");
 
-  // explicitly shutdown current system
-  System::current().stop();
+  cancel_token.cancelled().await;
 
   Ok(())
 }

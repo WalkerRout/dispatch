@@ -1,3 +1,6 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use actix::prelude::*;
 
 use tokio::process::Command;
@@ -5,6 +8,7 @@ use tokio::process::Command;
 use tracing::{error, info, instrument, Instrument, Span};
 
 use crate::model::message::RunCommand;
+use crate::model::script::Script;
 
 /// A runner receives some shell scripts and invokes them in a child process on
 /// the host OS
@@ -14,6 +18,17 @@ pub struct Runner;
 impl Runner {
   pub fn new() -> Self {
     Self
+  }
+
+  fn dispatch_scripts(&mut self, script: Script) -> Pin<Box<dyn Future<Output = ()>>> {
+    Box::pin(async move {
+      let mut cmd = command(&script);
+      // spawn and drop handle to child -> will continue running
+      match cmd.spawn() {
+        Ok(_) => info!("spawned - {script}"),
+        Err(e) => error!("failed to spawn - {e} - {script}"),
+      }
+    })
   }
 }
 
@@ -26,18 +41,11 @@ impl Handler<RunCommand> for Runner {
 
   #[instrument(name = "RUNNER", skip(self, msg, ctx))]
   fn handle(&mut self, msg: RunCommand, ctx: &mut Context<Self>) -> Self::Result {
-    let script = msg.0;
-    async move {
-      let mut cmd = command(&script);
-      // spawn and drop handle to child -> will continue running
-      match cmd.spawn() {
-        Ok(_) => info!("spawned - {script}"),
-        Err(e) => error!("failed to spawn - {e} - {script}"),
-      }
-    }
-    .instrument(Span::current())
-    .into_actor(self)
-    .spawn(ctx);
+    self
+      .dispatch_scripts(msg.0)
+      .instrument(Span::current())
+      .into_actor(self)
+      .spawn(ctx);
   }
 }
 
